@@ -30,6 +30,8 @@ type Props = { onFitRef?: (fit: () => void) => void };
 export function OsmLeafletMap({ onFitRef }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<L.Map | null>(null);
+  const fitCbRef = useRef(onFitRef);
+  fitCbRef.current = onFitRef;
   const layersRef = useRef<{
     routes: L.LayerGroup;
     nodes: L.LayerGroup;
@@ -44,7 +46,7 @@ export function OsmLeafletMap({ onFitRef }: Props) {
   const routeDraftFrom = useGameStore((s) => s.routeDraftFrom);
 
   useEffect(() => {
-    if (!containerRef.current) return;
+    if (!containerRef.current || mapRef.current) return;
 
     const map = L.map(containerRef.current, {
       center: [ISTANBUL_CENTER.lat, ISTANBUL_CENTER.lng],
@@ -58,9 +60,12 @@ export function OsmLeafletMap({ onFitRef }: Props) {
       zoomControl: true,
     });
 
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-      maxZoom: 19,
+    // OSM data via CARTO — more stable than tile.openstreetmap.org for apps
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+      attribution:
+        '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/">CARTO</a>',
+      subdomains: 'abcd',
+      maxZoom: 20,
     }).addTo(map);
 
     const routesLayer = L.layerGroup().addTo(map);
@@ -86,15 +91,24 @@ export function OsmLeafletMap({ onFitRef }: Props) {
         [ISTANBUL_BOUNDS[1][1], ISTANBUL_BOUNDS[1][0]],
       ]);
     };
-    onFitRef?.(fit);
-    requestAnimationFrame(() => map.invalidateSize());
+    fitCbRef.current?.(fit);
+
+    const refreshSize = () => map.invalidateSize({ animate: false });
+    requestAnimationFrame(refreshSize);
+    const t1 = window.setTimeout(refreshSize, 100);
+    const t2 = window.setTimeout(refreshSize, 500);
+    const ro = new ResizeObserver(refreshSize);
+    ro.observe(containerRef.current);
 
     return () => {
+      window.clearTimeout(t1);
+      window.clearTimeout(t2);
+      ro.disconnect();
       map.remove();
       mapRef.current = null;
       layersRef.current = null;
     };
-  }, [onFitRef]);
+  }, []);
 
   useEffect(() => {
     const layers = layersRef.current;
